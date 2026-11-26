@@ -21,13 +21,14 @@ jobs:
       - name: Installera bildbibliotek
         run: |
           sudo apt-get update
-          sudo apt-get install -y libmagick++-dev
+          sudo apt-get install -y libmagick++-dev librsvg2-dev
 
       - name: Installera paket
         run: |
           Rscript -e 'install.packages("pak")'
           Rscript -e 'install.packages("curl")'
           Rscript -e 'install.packages("magick")'
+          Rscript -e 'install.packages("rsvg")'
           Rscript -e 'pak::pkg_install("sportsdataverse/fastRhockey")'
 
       - name: Skapa testbilder
