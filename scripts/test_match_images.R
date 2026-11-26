@@ -38,7 +38,6 @@ safe_folder <- function(x) {
 
 # --------------------------------------------------
 # HÄMTA BILD
-# Hanterar lokala filer och webbadresser
 # --------------------------------------------------
 
 get_image <- function(url, cache_path = NULL) {
@@ -49,7 +48,6 @@ get_image <- function(url, cache_path = NULL) {
 
   url <- as.character(url)
 
-  # Lokal bild
   if (file.exists(url)) {
     return(tryCatch(
       image_read(url),
@@ -60,7 +58,6 @@ get_image <- function(url, cache_path = NULL) {
     ))
   }
 
-  # Använd cachad logotyp
   if (!is.null(cache_path) && file.exists(cache_path)) {
     return(tryCatch(
       image_read(cache_path),
@@ -84,7 +81,6 @@ get_image <- function(url, cache_path = NULL) {
       img <- image_read(temp_file)
     }
 
-    # Spara logotyp lokalt
     if (!is.null(cache_path)) {
 
       dir.create(
@@ -115,8 +111,26 @@ get_image <- function(url, cache_path = NULL) {
 
 
 # --------------------------------------------------
+# FÄRGA LIGALOGOTYP VIT
+# Behåller transparensen
+# --------------------------------------------------
+
+make_white_logo <- function(img) {
+
+  if (is.null(img)) {
+    return(NULL)
+  }
+
+  image_colorize(
+    img,
+    opacity = 100,
+    color = "white"
+  )
+}
+
+
+# --------------------------------------------------
 # ANPASSA LOGOTYPER
-# Behåller proportionerna och beskär inte
 # --------------------------------------------------
 
 fit_logo <- function(img, max_width, max_height) {
@@ -217,6 +231,7 @@ create_match_image <- function(
 
   # ------------------------------------------------
   # 2. LIGALOGOTYP
+  # Gör logotypen vit
   # ------------------------------------------------
 
   league_logo_path <- file.path(
@@ -224,10 +239,17 @@ create_match_image <- function(
     paste0(league, "_logo.svg.webp")
   )
 
+  cat("Söker ligalogotyp:", league_logo_path, "\n")
+
   if (file.exists(league_logo_path)) {
 
-    league_logo <- image_read(league_logo_path) |>
-      fit_logo(340, 120)
+    league_logo <- image_read(league_logo_path)
+
+    # Gör logotypen vit
+    league_logo <- make_white_logo(league_logo)
+
+    # Anpassa storleken
+    league_logo <- fit_logo(league_logo, 340, 120)
 
     canvas <- image_composite(
       canvas,
@@ -412,11 +434,9 @@ if (!is.null(shl) && nrow(shl) > 0) {
     create_match_image(
       league = "SHL",
 
-      # Lagkoder för att hitta rätt lagmappar
       home_code = shl$home_team_names_code[i],
       away_code = shl$away_team_names_code[i],
 
-      # Lagnamn för bild och filnamn
       home_name = shl$home_team_names_short[i],
       away_name = shl$away_team_names_short[i],
 
