@@ -25,3 +25,42 @@ print(
 )
 
 cat("\nTestet är klart!\n")
+
+# Testa om bildservern levererar bilder
+
+urls <- unique(na.omit(players$headshots_large))
+
+cat("\nAntal tillgängliga bildadresser:", length(urls), "\n")
+cat("\nTestar bildservern...\n")
+
+if (length(urls) == 0) {
+
+  cat("Inga bildadresser hittades!\n")
+
+} else {
+
+  for (i in seq_len(min(5, length(urls)))) {
+
+    tryCatch({
+
+      response <- curl::curl_fetch_memory(urls[i])
+
+      cat(
+        "Bild", i,
+        "| HTTP:", response$status_code,
+        "| Typ:", response$type,
+        "| Storlek:", length(response$content), "bytes\n"
+      )
+
+    }, error = function(e) {
+
+      cat(
+        "Bild", i,
+        "| FEL:", conditionMessage(e), "\n"
+      )
+
+    })
+  }
+}
+
+cat("\nBildtestet är klart!\n")
