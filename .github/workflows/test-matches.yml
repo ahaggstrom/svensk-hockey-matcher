@@ -1,0 +1,28 @@
+
+name: Testa matchschema
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Hamta repository
+        uses: actions/checkout@v4
+
+      - name: Installera R
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Installera paket
+        run: |
+          Rscript -e 'install.packages("pak")'
+          Rscript -e 'pak::pkg_install("sportsdataverse/fastRhockey")'
+
+      - name: Testa matchschema
+        run: |
+          Rscript scripts/test_matches.R
