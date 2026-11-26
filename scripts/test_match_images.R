@@ -1,4 +1,3 @@
-
 library(fastRhockey)
 library(magick)
 library(curl)
@@ -82,7 +81,7 @@ get_image <- function(url, cache_path = NULL) {
 
     # SVG eller vanlig bild
     if (grepl("\\.svg($|\\?)", url, ignore.case = TRUE)) {
-      img <- image_read_svg(temp_file)
+      img <- image_read_svg(temp_file, width = 600)
     } else {
       img <- image_read(temp_file)
     }
@@ -117,59 +116,25 @@ get_image <- function(url, cache_path = NULL) {
 
 
 # --------------------------------------------------
-# Hämta första spelarbilden i lagets mapp
+# Anpassa bildstorlek utan att beskära logotyper
 # --------------------------------------------------
 
-get_player_image <- function(league, team_code) {
-
-  team_folder <- file.path(
-    "players",
-    league,
-    team_code
-  )
-
-  if (!dir.exists(team_folder)) {
-    message("Saknar spelarmapp: ", team_folder)
-    return(NULL)
-  }
-
-  files <- list.files(
-    team_folder,
-    pattern = "\\.(png|jpg|jpeg|webp)$",
-    full.names = TRUE,
-    ignore.case = TRUE
-  )
-
-  # Ta inte med lagets logotyp
-  files <- files[
-    basename(files) != "team-logo.png"
-  ]
-
-  if (length(files) == 0) {
-    message("Hittade inga spelarporträtt i: ", team_folder)
-    return(NULL)
-  }
-
-  get_image(files[1])
-}
-
-
-# --------------------------------------------------
-# Anpassa bildstorlek
-# --------------------------------------------------
-
-prepare_image <- function(img, width, height) {
+fit_logo <- function(img, max_width, max_height) {
 
   if (is.null(img)) {
     return(NULL)
   }
 
+  # Trimmar bort eventuella genomskinliga marginaler runt loggan först
+  img <- image_trim(img)
+
+  # Skalar så att loggan ryms inom rutan med bibehållna proportioner
   image_resize(
     img,
-    paste0(width, "x", height, "^")
+    paste0(max_width, "x", max_height)
   ) |>
     image_extent(
-      geometry = paste0(width, "x", height),
+      geometry = paste0(max_width, "x", max_height),
       gravity = "center",
       color = "none"
     )
@@ -177,7 +142,7 @@ prepare_image <- function(img, width, height) {
 
 
 # --------------------------------------------------
-# Skapa matchbild
+# Skapa matchbild (1280x720 widescreen)
 # --------------------------------------------------
 
 create_match_image <- function(
@@ -203,7 +168,7 @@ create_match_image <- function(
     "\n"
   )
 
-  # Mappar för lagen
+  # Sökvägar för cachade lagloggor
   home_logo_path <- file.path(
     "players", league, home_code, "team-logo.png"
   )
@@ -212,51 +177,62 @@ create_match_image <- function(
     "players", league, away_code, "team-logo.png"
   )
 
-  # Hämta logotyper
+  # Hämta laglogotyper
   home_logo <- get_image(home_logo_url, home_logo_path)
   away_logo <- get_image(away_logo_url, away_logo_path)
 
-  # Hämta spelarporträtt
-  home_player <- get_player_image(league, home_code)
-  away_player <- get_player_image(league, away_code)
+  # 1. Bakgrund (1280x720)
+  bg_path <- file.path("assets", "bg_hockey.jpg")
 
-  # Mörk bakgrund
-  canvas <- image_blank(
-    width = 512,
-    height = 512,
-    color = "#101820"
-  )
+  if (file.exists(bg_path)) {
+    canvas <- image_read(bg_path) |>
+      image_resize("1280x720^") |>
+      image_extent("1280x720", gravity = "center")
+  } else {
+    message("Ingen bakgrundsbild hittades i ", bg_path, " – använder enfärgad bakgrund.")
+    canvas <- image_blank(
+      width = 1280,
+      height = 720,
+      color = "#101820"
+    )
+  }
 
-  # Rubrik
-  canvas <- image_annotate(
-    canvas,
-    text = paste(league, "MATCH"),
-    gravity = "north",
-    location = "+0+22",
-    size = 25,
-    color = "white",
-    font = "DejaVu-Sans-Bold"
-  )
+  # 2. Ligalogotyp centrerad i toppen (t.ex. assets/SHL_logo.png)
+  league_logo_path <- file.path("assets", paste0(league, "_logo.png"))
 
-  # Datum
-  canvas <- image_annotate(
-    canvas,
-    text = date_string,
-    gravity = "north",
-    location = "+0+58",
-    size = 19,
-    color = "#BBBBBB"
-  )
+  if (file.exists(league_logo_path)) {
+    league_logo <- image_read(league_logo_path) |>
+      fit_logo(340, 120)
 
-  # Logotyper
-  home_logo <- prepare_image(home_logo, 110, 110)
-  away_logo <- prepare_image(away_logo, 110, 110)
+    canvas <- image_composite(
+      canvas,
+      league_logo,
+      gravity = "north",
+      offset = "+0+65"
+    )
+  } else {
+    # Reserv om ligaloggan saknas: ren vit text i toppen
+    canvas <- image_annotate(
+      canvas,
+      text = league,
+      gravity = "north",
+      location = "+0+70",
+      size = 85,
+      color = "white",
+      font = "DejaVu-Sans-Bold"
+    )
+  }
+
+  # 3. Stora lagloggor (360x360 px)
+  home_logo <- fit_logo(home_logo, 360, 360)
+  away_logo <- fit_logo(away_logo, 360, 360)
 
   if (!is.null(home_logo)) {
     canvas <- image_composite(
       canvas,
       home_logo,
-      offset = "+91+112"
+      gravity = "west",
+      offset = "+140+55"
     )
   }
 
@@ -264,63 +240,12 @@ create_match_image <- function(
     canvas <- image_composite(
       canvas,
       away_logo,
-      offset = "+311+112"
+      gravity = "east",
+      offset = "+140+55"
     )
   }
 
-  # Spelarporträtt
-  home_player <- prepare_image(home_player, 120, 150)
-  away_player <- prepare_image(away_player, 120, 150)
-
-  if (!is.null(home_player)) {
-    canvas <- image_composite(
-      canvas,
-      home_player,
-      offset = "+86+245"
-    )
-  }
-
-  if (!is.null(away_player)) {
-    canvas <- image_composite(
-      canvas,
-      away_player,
-      offset = "+306+245"
-    )
-  }
-
-  # Lagnamn
-  canvas <- image_annotate(
-    canvas,
-    text = home_name,
-    gravity = "northwest",
-    location = "+35+415",
-    size = 22,
-    color = "white",
-    font = "DejaVu-Sans-Bold"
-  )
-
-  canvas <- image_annotate(
-    canvas,
-    text = away_name,
-    gravity = "northeast",
-    location = "+35+415",
-    size = 22,
-    color = "white",
-    font = "DejaVu-Sans-Bold"
-  )
-
-  # VS
-  canvas <- image_annotate(
-    canvas,
-    text = "VS",
-    gravity = "center",
-    location = "+0+0",
-    size = 25,
-    color = "#F5C542",
-    font = "DejaVu-Sans-Bold"
-  )
-
-  # Spara bilden i datumkatalog
+  # 4. Spara bilden i datumkatalog
   output_folder <- file.path(
     "players",
     "generated",
@@ -448,17 +373,11 @@ if (!is.null(shl) && nrow(shl) > 0) {
 
     create_match_image(
       league = "SHL",
-
-      # Lagkoder används för att hitta spelarbilder
       home_code = shl$home_team_names_code[i],
       away_code = shl$away_team_names_code[i],
-
-      # Lagnamn används i bildtext och filnamn
       home_name = shl$home_team_names_short[i],
       away_name = shl$away_team_names_short[i],
-
       match_date = shl_dates[i],
-
       home_logo_url = shl$home_team_icon[i],
       away_logo_url = shl$away_team_icon[i]
     )
