@@ -1,17 +1,13 @@
 
-# ==========================================
-# TEST AV AUTOMATISK MATCHBILDGENERATOR
-# SHL OCH HOCKEYALLSVENSKAN
-# ==========================================
-
 library(fastRhockey)
 library(magick)
 library(curl)
 library(rsvg)
 
-cat("\n===== STARTAR MATCHBILDGENERATOR =====\n")
+# --------------------------------------------------
+# Datum och säsong
+# --------------------------------------------------
 
-# DATUM
 today <- as.Date(format(
   Sys.time(),
   tz = "Europe/Stockholm",
@@ -22,7 +18,17 @@ end_date <- today + 7
 
 year <- as.integer(format(today, "%Y"))
 month <- as.integer(format(today, "%m"))
+
+# Säsongen anges med det år den avslutas
 season <- year + ifelse(month >= 7, 1, 0)
+
+cat("Dagens datum:", as.character(today), "\n")
+cat("Säsong:", season, "\n")
+
+
+# --------------------------------------------------
+# Hjälpfunktion för filnamn
+# --------------------------------------------------
 
 safe_folder <- function(x) {
   x <- iconv(as.character(x), from = "", to = "ASCII//TRANSLIT")
@@ -30,209 +36,295 @@ safe_folder <- function(x) {
   gsub("[^A-Z0-9_-]", "_", x)
 }
 
-# ==========================================
-# HÄMTA BILD
-# ==========================================
 
-get_image <- function(url, path = NULL) {
+# --------------------------------------------------
+# Hämta bild
+# Hanterar både lokala filer och webbadresser
+# --------------------------------------------------
 
-  # Lokal bild
-  if (length(url) == 1 && !is.na(url) && file.exists(url)) {
-    return(tryCatch(image_read(url), error = function(e) NULL))
+get_image <- function(url, cache_path = NULL) {
+
+  if (is.null(url) || is.na(url) || !nzchar(as.character(url))) {
+    return(NULL)
   }
 
-  # Befintlig logotyp
-  if (!is.null(path) && file.exists(path)) {
-    result <- tryCatch(image_read(path), error = function(e) NULL)
-    if (!is.null(result)) return(result)
+  url <- as.character(url)
+
+  # Om det redan är en lokal bild
+  if (file.exists(url)) {
+    return(tryCatch(
+      image_read(url),
+      error = function(e) {
+        message("Kunde inte läsa lokal bild: ", url)
+        NULL
+      }
+    ))
   }
 
-  if (length(url) == 0 || is.na(url) || url == "") return(NULL)
+  # Använd redan nedladdad logotyp
+  if (!is.null(cache_path) && file.exists(cache_path)) {
+    return(tryCatch(
+      image_read(cache_path),
+      error = function(e) NULL
+    ))
+  }
 
-  tryCatch({
+  # Hämta bild från internet
+  temp_file <- tempfile()
 
-    response <- curl_fetch_memory(url)
+  result <- tryCatch({
 
-    if (response$status_code != 200) return(NULL)
-
-    is_svg <- grepl("\\.svg([?#].*)?$", url, ignore.case = TRUE)
-
-    tmp <- tempfile(
-      fileext = if (is_svg) ".svg" else ".img"
+    curl_download(
+      url = url,
+      destfile = temp_file,
+      quiet = TRUE
     )
 
-    writeBin(response$content, tmp)
-
-    if (is_svg) {
-      img <- image_read_svg(tmp)
+    # SVG eller vanlig bild
+    if (grepl("\\.svg($|\\?)", url, ignore.case = TRUE)) {
+      img <- image_read_svg(temp_file)
     } else {
-      img <- image_read(tmp)
+      img <- image_read(temp_file)
     }
 
-    if (!is.null(path)) {
-      image_write(img, path, format = "png")
+    # Spara logotyp lokalt för framtida körningar
+    if (!is.null(cache_path)) {
+      dir.create(
+        dirname(cache_path),
+        recursive = TRUE,
+        showWarnings = FALSE
+      )
+
+      image_write(
+        img,
+        path = cache_path,
+        format = "png"
+      )
     }
 
     img
 
   }, error = function(e) {
-
-    cat("Kunde inte läsa bild:", conditionMessage(e), "\n")
+    message("Kunde inte hämta bild: ", url)
+    message(conditionMessage(e))
     NULL
-
   })
+
+  unlink(temp_file)
+
+  result
 }
 
-# ==========================================
-# SKAPA MATCHBILD
-# ==========================================
+
+# --------------------------------------------------
+# Hämta första spelarbilden i lagets mapp
+# --------------------------------------------------
+
+get_player_image <- function(league, team_code) {
+
+  team_folder <- file.path(
+    "players",
+    league,
+    team_code
+  )
+
+  if (!dir.exists(team_folder)) {
+    message("Saknar spelarmapp: ", team_folder)
+    return(NULL)
+  }
+
+  files <- list.files(
+    team_folder,
+    pattern = "\\.(png|jpg|jpeg|webp)$",
+    full.names = TRUE,
+    ignore.case = TRUE
+  )
+
+  # Ta inte med lagets logotyp
+  files <- files[
+    basename(files) != "team-logo.png"
+  ]
+
+  if (length(files) == 0) {
+    message("Hittade inga spelarporträtt i: ", team_folder)
+    return(NULL)
+  }
+
+  get_image(files[1])
+}
+
+
+# --------------------------------------------------
+# Anpassa bildstorlek
+# --------------------------------------------------
+
+prepare_image <- function(img, width, height) {
+
+  if (is.null(img)) {
+    return(NULL)
+  }
+
+  image_resize(
+    img,
+    paste0(width, "x", height, "^")
+  ) |>
+    image_extent(
+      geometry = paste0(width, "x", height),
+      gravity = "center",
+      color = "none"
+    )
+}
+
+
+# --------------------------------------------------
+# Skapa matchbild
+# --------------------------------------------------
 
 create_match_image <- function(
-  league,
-  date,
-  home_code,
-  away_code,
-  home_name,
-  away_name,
-  home_logo_url,
-  away_logo_url
+    league,
+    home_code,
+    away_code,
+    home_name,
+    away_name,
+    match_date,
+    home_logo_url = NULL,
+    away_logo_url = NULL
 ) {
 
-  cat("\nSkapar:", home_name, "-", away_name, "\n")
+  date_string <- format(match_date, "%Y-%m-%d")
 
-  base_folder <- file.path("players", league)
-
-  home_folder <- file.path(base_folder, safe_folder(home_code))
-  away_folder <- file.path(base_folder, safe_folder(away_code))
-
-  # Hämta spelarporträtt
-  home_players <- list.files(
-    home_folder,
-    pattern = "\\.png$",
-    full.names = TRUE
+  cat(
+    "Skapar bild:",
+    league,
+    home_name,
+    "-",
+    away_name,
+    date_string,
+    "\n"
   )
 
-  away_players <- list.files(
-    away_folder,
-    pattern = "\\.png$",
-    full.names = TRUE
+  # Mappar för lagen
+  home_logo_path <- file.path(
+    "players", league, home_code, "team-logo.png"
   )
 
-  home_players <- home_players[
-    basename(home_players) != "team-logo.png"
-  ]
-
-  away_players <- away_players[
-    basename(away_players) != "team-logo.png"
-  ]
-
-  if (length(home_players) == 0 || length(away_players) == 0) {
-    cat("Saknar spelarporträtt för något lag!\n")
-    return(FALSE)
-  }
+  away_logo_path <- file.path(
+    "players", league, away_code, "team-logo.png"
+  )
 
   # Hämta logotyper
-  home_logo <- get_image(
-    home_logo_url,
-    file.path(home_folder, "team-logo.png")
-  )
-
-  away_logo <- get_image(
-    away_logo_url,
-    file.path(away_folder, "team-logo.png")
-  )
+  home_logo <- get_image(home_logo_url, home_logo_path)
+  away_logo <- get_image(away_logo_url, away_logo_path)
 
   # Hämta spelarporträtt
-  home_player <- get_image(home_players[1])
-  away_player <- get_image(away_players[1])
+  home_player <- get_player_image(league, home_code)
+  away_player <- get_player_image(league, away_code)
 
-  if (is.null(home_player) || is.null(away_player)) {
-    cat("Kunde inte läsa spelarporträtt!\n")
-    return(FALSE)
-  }
-
-  # Skapa bakgrund
+  # Mörk bakgrund
   canvas <- image_blank(
     width = 512,
     height = 512,
     color = "#101820"
   )
 
-  # Ligatitel och datum
+  # Rubrik
   canvas <- image_annotate(
     canvas,
-    paste(league, format(date, "%Y-%m-%d")),
+    text = paste(league, "MATCH"),
     gravity = "north",
-    location = "+0+20",
-    size = 23,
+    location = "+0+22",
+    size = 25,
     color = "white",
-    font = "DejaVu-Sans"
+    font = "DejaVu-Sans-Bold"
   )
 
-  # Hemmalagets logotyp
-  if (!is.null(home_logo)) {
-    home_logo <- image_resize(home_logo, "115x115")
+  # Datum
+  canvas <- image_annotate(
+    canvas,
+    text = date_string,
+    gravity = "north",
+    location = "+0+58",
+    size = 19,
+    color = "#BBBBBB"
+  )
 
+  # Logotyper
+  home_logo <- prepare_image(home_logo, 110, 110)
+  away_logo <- prepare_image(away_logo, 110, 110)
+
+  if (!is.null(home_logo)) {
     canvas <- image_composite(
       canvas,
       home_logo,
-      offset = "+90+75"
+      offset = "+91+112"
     )
   }
 
-  # Bortalagets logotyp
   if (!is.null(away_logo)) {
-    away_logo <- image_resize(away_logo, "115x115")
-
     canvas <- image_composite(
       canvas,
       away_logo,
-      offset = "+307+75"
+      offset = "+311+112"
     )
   }
 
   # Spelarporträtt
-  home_player <- image_resize(home_player, "180x230")
-  away_player <- image_resize(away_player, "180x230")
+  home_player <- prepare_image(home_player, 120, 150)
+  away_player <- prepare_image(away_player, 120, 150)
 
-  canvas <- image_composite(
-    canvas,
-    home_player,
-    offset = "+35+210"
-  )
+  if (!is.null(home_player)) {
+    canvas <- image_composite(
+      canvas,
+      home_player,
+      offset = "+86+245"
+    )
+  }
 
-  canvas <- image_composite(
-    canvas,
-    away_player,
-    offset = "+297+210"
-  )
+  if (!is.null(away_player)) {
+    canvas <- image_composite(
+      canvas,
+      away_player,
+      offset = "+306+245"
+    )
+  }
 
   # Lagnamn
   canvas <- image_annotate(
     canvas,
-    home_name,
-    gravity = "southwest",
-    location = "+25+15",
-    size = 21,
+    text = home_name,
+    gravity = "northwest",
+    location = "+35+415",
+    size = 22,
     color = "white",
-    font = "DejaVu-Sans"
+    font = "DejaVu-Sans-Bold"
   )
 
   canvas <- image_annotate(
     canvas,
-    away_name,
-    gravity = "southeast",
-    location = "+25+15",
-    size = 21,
+    text = away_name,
+    gravity = "northeast",
+    location = "+35+415",
+    size = 22,
     color = "white",
-    font = "DejaVu-Sans"
+    font = "DejaVu-Sans-Bold"
   )
 
-  # Spara bild
+  # VS
+  canvas <- image_annotate(
+    canvas,
+    text = "VS",
+    gravity = "center",
+    location = "+0+0",
+    size = 25,
+    color = "#F5C542",
+    font = "DejaVu-Sans-Bold"
+  )
+
+  # Spara bilden i datumkatalog
   output_folder <- file.path(
     "players",
     "generated",
-    format(date, "%Y-%m-%d")
+    date_string
   )
 
   dir.create(
@@ -241,131 +333,142 @@ create_match_image <- function(
     showWarnings = FALSE
   )
 
-  # Filnamn: HEMMALAG_BORTALAG_DATUM
   filename <- paste(
     safe_folder(home_name),
     safe_folder(away_name),
-    format(date, "%Y-%m-%d"),
+    date_string,
     sep = "_"
   )
 
-  output <- file.path(
+  output_path <- file.path(
     output_folder,
     paste0(filename, ".png")
   )
 
   image_write(
     canvas,
-    path = output,
+    path = output_path,
     format = "png"
   )
 
-  cat("Bild skapad:", output, "\n")
-
-  TRUE
+  cat("Bild sparad:", output_path, "\n")
 }
 
-# ==========================================
-# HOCKEYALLSVENSKAN
-# ==========================================
 
-cat("\n===== HOCKEYALLSVENSKAN =====\n")
+# --------------------------------------------------
+# HOCKEYALLSVENSKAN
+# --------------------------------------------------
+
+cat("\nHämtar HockeyAllsvenskans spelschema...\n")
 
 ha <- ha_schedule()
 
-ha_time <- as.POSIXct(
-  ha$scheduled_date_time,
-  format = "%Y-%m-%dT%H:%M:%OSZ",
-  tz = "UTC"
-)
+if (!is.null(ha) && nrow(ha) > 0) {
 
-ha_date <- as.Date(
-  format(
-    ha_time,
-    tz = "Europe/Stockholm",
-    format = "%Y-%m-%d"
+  ha_datetime <- as.POSIXct(
+    ha$scheduled_date_time,
+    tz = "UTC"
   )
-)
 
-ha_index <- which(
-  !is.na(ha_date) &
-    ha_date >= today &
-    ha_date <= end_date &
+  ha_dates <- as.Date(
+    format(
+      ha_datetime,
+      tz = "Europe/Stockholm",
+      format = "%Y-%m-%d"
+    )
+  )
+
+  ha_matches <- which(
+    ha_dates >= today &
+    ha_dates <= end_date &
     !is.na(ha$is_completed) &
     !ha$is_completed
-)
-
-if (length(ha_index) > 0) {
-
-  ha_index <- ha_index[order(ha_date[ha_index])]
-
-  i <- ha_index[1]
-
-  create_match_image(
-    "HA",
-    ha_date[i],
-    ha$home_team_code[i],
-    ha$away_team_code[i],
-    ha$home_team_name[i],
-    ha$away_team_name[i],
-    ha$home_team_logo_url[i],
-    ha$away_team_logo_url[i]
   )
 
+  if (length(ha_matches) > 0) {
+
+    i <- ha_matches[1]
+
+    create_match_image(
+      league = "HA",
+      home_code = ha$home_team_code[i],
+      away_code = ha$away_team_code[i],
+      home_name = ha$home_team_name[i],
+      away_name = ha$away_team_name[i],
+      match_date = ha_dates[i],
+      home_logo_url = ha$home_team_logo_url[i],
+      away_logo_url = ha$away_team_logo_url[i]
+    )
+
+  } else {
+    cat("Ingen kommande HA-match hittades inom perioden.\n")
+  }
+
 } else {
-
-  cat("Inga kommande HA-matcher hittades.\n")
-
+  cat("Kunde inte hämta HA-spelschemat.\n")
 }
 
-# ==========================================
-# SHL
-# ==========================================
 
-cat("\n===== SHL =====\n")
+# --------------------------------------------------
+# SHL
+# --------------------------------------------------
+
+cat("\nHämtar SHL:s spelschema...\n")
 
 shl <- shl_schedule(
   season = season,
   game_type = "regular"
 )
 
-shl_date <- as.Date(
-  substr(shl$start_date_time, 1, 10)
-)
+if (!is.null(shl) && nrow(shl) > 0) {
 
-shl_index <- which(
-  !is.na(shl_date) &
-    shl_date >= today &
-    shl_date <= end_date &
-    !is.na(shl$state) &
-    shl$state != "post-game"
-)
-
-if (length(shl_index) > 0) {
-
-  shl_index <- shl_index[order(shl_date[shl_index])]
-
-  i <- shl_index[1]
-
-  create_match_image(
-    "SHL",
-    shl_date[i],
-    shl$home_team_names_code[i],
-    shl$away_team_names_code[i],
-    shl$home_team_names_code[i],
-    shl$away_team_names_code[i],
-    shl$home_team_icon[i],
-    shl$away_team_icon[i]
+  shl_datetime <- as.POSIXct(
+    shl$start_date_time,
+    tz = "Europe/Stockholm"
   )
 
+  shl_dates <- as.Date(
+    format(
+      shl_datetime,
+      tz = "Europe/Stockholm",
+      format = "%Y-%m-%d"
+    )
+  )
+
+  shl_matches <- which(
+    shl_dates >= today &
+    shl_dates <= end_date &
+    !is.na(shl$state) &
+    shl$state != "post-game"
+  )
+
+  if (length(shl_matches) > 0) {
+
+    i <- shl_matches[1]
+
+    create_match_image(
+      league = "SHL",
+
+      # Lagkoder används för att hitta spelarbilder
+      home_code = shl$home_team_names_code[i],
+      away_code = shl$away_team_names_code[i],
+
+      # Lagnamn används i bildtext och filnamn
+      home_name = shl$home_team_names_short[i],
+      away_name = shl$away_team_names_short[i],
+
+      match_date = shl_dates[i],
+
+      home_logo_url = shl$home_team_icon[i],
+      away_logo_url = shl$away_team_icon[i]
+    )
+
+  } else {
+    cat("Ingen kommande SHL-match hittades inom perioden.\n")
+  }
+
 } else {
-
-  cat("Inga kommande SHL-matcher hittades.\n")
-
+  cat("Kunde inte hämta SHL-spelschemat.\n")
 }
 
-# ==========================================
-# KLART
-# ==========================================
-
-cat("\n===== BILDSKAPANDE KLART =====\n")
+cat("\nKlart!\n")
