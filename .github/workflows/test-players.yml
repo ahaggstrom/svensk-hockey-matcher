@@ -1,5 +1,5 @@
 
-name: Testa spelarportratt
+name: Ladda ner alla spelarportratt
 
 on:
   workflow_dispatch:
