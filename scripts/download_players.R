@@ -73,7 +73,7 @@ for (i in seq_len(nrow(players))) {
 
   player <- players[i, ]
 
-  url <- player$headshots_large
+  url <- player$headshots_medium
 
   if (is.na(url) || url == "") {
     next
