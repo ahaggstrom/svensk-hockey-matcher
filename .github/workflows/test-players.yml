@@ -18,8 +18,9 @@ jobs:
       - name: Installera paket
         run: |
           Rscript -e 'install.packages("pak")'
+          Rscript -e 'install.packages("curl")'
           Rscript -e 'pak::pkg_install("sportsdataverse/fastRhockey")'
 
-      - name: Testa AIK
+      - name: Testa AIK och bildserver
         run: |
           Rscript scripts/test_players.R
