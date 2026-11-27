@@ -26,7 +26,7 @@ get_teams <- function(url, heading_pattern, next_heading_pattern) {
     end <- length(heading_text) + 1
   }
 
-  container <- xml_parent(headings[[start]])
+  container <- xml2::xml_parent(headings[[start]])
 
   elements <- xml_find_all(
     container,
