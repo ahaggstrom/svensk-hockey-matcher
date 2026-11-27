@@ -26,7 +26,7 @@ cat("Säsong:", season, "\n")
 
 
 # --------------------------------------------------
-# HJÄLPFUNKTIONER FÖR FILNAMN
+# NAMNSTANDARDISERING
 # --------------------------------------------------
 
 safe_folder <- function(x) {
@@ -39,21 +39,33 @@ safe_folder <- function(x) {
 safe_team_name <- function(x) {
 
   x <- safe_folder(x)
+  x <- gsub("_+", "_", x)
 
-  # Ta bort IF som prefix
-  x <- sub("^IF_", "", x)
+  # Särskilda namn som behöver egna regler
+  aliases <- c(
+    "BIK_KARLSKOGA" = "KARLSKOGA",
+    "MODO_HOCKEY" = "MODO",
+    "MODOHOCKEY" = "MODO",
+    "VAXJO_LAKERS" = "VAXJO",
+    "VISBY_ROMA" = "VISBY",
+    "MALMO_REDHAWKS" = "MALMO",
+    "FARJESTAD_BK" = "FARJESTAD",
+    "DJURGARDENS" = "DJURGARDEN",
+    "SKELLEFTEA_AIK" = "SKELLEFTEA"
+  )
 
-  # Ta bort vanliga klubbändelser
-  x <- sub("_(BK|HC|IF|IK|HF|HK|SK|IS)$", "", x)
+  if (x %in% names(aliases)) {
+    return(unname(aliases[x]))
+  }
 
-  # Särskilda namnregler
-  x <- sub("^BIK_KARLSKOGA$", "KARLSKOGA", x)
-  x <- sub("^MODO_HOCKEY$", "MODO", x)
-  x <- sub("^VAXJO_LAKERS$", "VAXJO", x)
-  x <- sub("^VISBY_ROMA$", "VISBY", x)
-  x <- sub("^MALMO_REDHAWKS$", "MALMO", x)
+  # Ta bort vanliga prefix
+  x <- sub("^(IF|IK)_", "", x)
 
-  # Behåll endast bokstäver och siffror
+  # Ta bort vanliga föreningsbeteckningar i slutet
+  # AIK tas inte bort generellt
+  x <- sub("_(HC|IF|IK|HF|HK|SK|IS|BK)$", "", x)
+
+  # Ta bort återstående skiljetecken
   x <- gsub("[^A-Z0-9]", "", x)
 
   x
@@ -62,7 +74,7 @@ safe_team_name <- function(x) {
 
 # --------------------------------------------------
 # SKAPA FILNAMN
-# Format: LINKOPING_BRYNAS_Nov_26.png
+# Exempel: SKELLEFTEA_BRYNAS_Nov_28.png
 # --------------------------------------------------
 
 make_match_filename <- function(
@@ -71,21 +83,29 @@ make_match_filename <- function(
     match_datetime
 ) {
 
+  local_date <- as.Date(format(
+    match_datetime,
+    tz = "Europe/Stockholm",
+    format = "%Y-%m-%d"
+  ))
+
   months <- c(
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    "Jan", "Feb", "Mar", "Apr",
+    "May", "Jun", "Jul", "Aug",
+    "Sep", "Oct", "Nov", "Dec"
   )
 
-  local_time <- as.POSIXlt(
-    match_datetime,
-    tz = "Europe/Stockholm"
-  )
+  month_name <- months[as.integer(format(local_date, "%m"))]
+  day_number <- as.integer(format(local_date, "%d"))
 
   paste0(
-    safe_team_name(home_name), "_",
-    safe_team_name(away_name), "_",
-    months[local_time$mon + 1], "_",
-    local_time$mday,
+    safe_team_name(home_name),
+    "_",
+    safe_team_name(away_name),
+    "_",
+    month_name,
+    "_",
+    day_number,
     ".png"
   )
 }
@@ -103,6 +123,7 @@ get_image <- function(url, cache_path = NULL) {
 
   url <- as.character(url)
 
+  # Läs lokal bild
   if (file.exists(url)) {
     return(tryCatch(
       image_read(url),
@@ -113,6 +134,7 @@ get_image <- function(url, cache_path = NULL) {
     ))
   }
 
+  # Läs cache
   if (!is.null(cache_path) && file.exists(cache_path)) {
     return(tryCatch(
       image_read(cache_path),
@@ -242,6 +264,14 @@ create_match_image <- function(
     "\n"
   )
 
+  cat(
+    "Standardiserade namn:",
+    safe_team_name(home_name),
+    "-",
+    safe_team_name(away_name),
+    "\n"
+  )
+
   # Cachade laglogotyper
   home_logo_path <- file.path(
     "players", league, home_code, "team-logo.png"
@@ -292,7 +322,6 @@ create_match_image <- function(
 
   # ------------------------------------------------
   # 2. LIGALOGOTYP
-  # Gör logotypen vit
   # ------------------------------------------------
 
   league_logo_path <- file.path(
@@ -306,8 +335,10 @@ create_match_image <- function(
 
     league_logo <- image_read(league_logo_path)
 
+    # Gör logotypen vit
     league_logo <- make_white_logo(league_logo)
 
+    # Anpassa storleken
     league_logo <- fit_logo(league_logo, 340, 120)
 
     canvas <- image_composite(
@@ -444,10 +475,12 @@ if (!is.null(ha) && nrow(ha) > 0) {
     )
 
   } else {
+
     cat("Ingen kommande HA-match hittades inom perioden.\n")
   }
 
 } else {
+
   cat("Kunde inte hämta HA-spelschemat.\n")
 }
 
@@ -499,17 +532,19 @@ if (!is.null(shl) && nrow(shl) > 0) {
       away_name = shl$away_team_names_short[i],
 
       match_datetime = shl_datetime[i],
-
       home_logo_url = shl$home_team_icon[i],
       away_logo_url = shl$away_team_icon[i]
     )
 
   } else {
+
     cat("Ingen kommande SHL-match hittades inom perioden.\n")
   }
 
 } else {
+
   cat("Kunde inte hämta SHL-spelschemat.\n")
 }
+
 
 cat("\nKlart!\n")
