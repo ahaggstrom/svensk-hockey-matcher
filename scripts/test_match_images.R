@@ -391,7 +391,7 @@ create_match_image <- function(
   }
 
   # ------------------------------------------------
-  # SPARA MATCHBILD
+  # SPARA MATCHBILD MED PNG-OPTIMERING
   # ------------------------------------------------
 
   match_date <- format(
@@ -419,15 +419,30 @@ create_match_image <- function(
 
   output_path <- file.path(output_dir, filename)
 
-  image_write(
+  # Reducera färgerna till maximalt 256
+  optimized_canvas <- image_quantize(
     canvas,
+    max = 256,
+    colorspace = "sRGB",
+    dither = TRUE
+  )
+
+  # Spara som PNG
+  image_write(
+    optimized_canvas,
     path = output_path,
     format = "png",
     compression = "zip",
     defines = png_defines
   )
 
-  cat("Sparad:", output_path, "\n")
+  cat(
+    "Sparad:",
+    output_path,
+    "- Storlek:",
+    round(file.info(output_path)$size / 1024),
+    "KB\n"
+  )
 }
 
 # --------------------------------------------------
