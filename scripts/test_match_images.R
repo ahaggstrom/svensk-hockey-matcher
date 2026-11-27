@@ -2,10 +2,9 @@
 library(fastRhockey)
 library(magick)
 library(curl)
-library(rsvg)
 
 # --------------------------------------------------
-# DATUM OCH SÄSONG
+# INSTÄLLNINGAR
 # --------------------------------------------------
 
 today <- as.Date(format(
@@ -16,17 +15,72 @@ today <- as.Date(format(
 
 end_date <- today + 7
 
-year <- as.integer(format(today, "%Y"))
-month <- as.integer(format(today, "%m"))
+width <- 1280
+height <- 720
 
-season <- year + ifelse(month >= 7, 1, 0)
+generated_dir <- file.path("players", "generated")
 
-cat("Dagens datum:", as.character(today), "\n")
-cat("Säsong:", season, "\n")
-
+dir.create(generated_dir, recursive = TRUE, showWarnings = FALSE)
 
 # --------------------------------------------------
-# NAMNSTANDARDISERING
+# RENSNING AV GAMLA BILDER
+# Tar bort genererade bilder äldre än 7 dagar
+# --------------------------------------------------
+
+cleanup_old_images <- function() {
+
+  if (!dir.exists(generated_dir)) return(invisible(NULL))
+
+  files <- list.files(
+    generated_dir,
+    pattern = "\\.png$",
+    recursive = TRUE,
+    full.names = TRUE,
+    ignore.case = TRUE
+  )
+
+  if (length(files) == 0) return(invisible(NULL))
+
+  file_info <- file.info(files)
+
+  old_files <- files[
+    !is.na(file_info$mtime) &
+      as.numeric(difftime(
+        Sys.time(),
+        file_info$mtime,
+        units = "hours"
+      )) > 168
+  ]
+
+  if (length(old_files) > 0) {
+    file.remove(old_files)
+    cat("Tog bort", length(old_files), "bilder äldre än 7 dagar.\n")
+  } else {
+    cat("Inga bilder äldre än 7 dagar att ta bort.\n")
+  }
+
+  # Ta bort tomma mappar
+  directories <- list.dirs(
+    generated_dir,
+    recursive = TRUE,
+    full.names = TRUE
+  )
+
+  directories <- directories[order(nchar(directories), decreasing = TRUE)]
+
+  for (dir in directories) {
+    if (length(list.files(dir, all.files = TRUE, no.. = TRUE)) == 0) {
+      unlink(dir, recursive = TRUE)
+    }
+  }
+
+  invisible(NULL)
+}
+
+cleanup_old_images()
+
+# --------------------------------------------------
+# NAMNFORMATERING
 # --------------------------------------------------
 
 safe_folder <- function(x) {
@@ -35,12 +89,16 @@ safe_folder <- function(x) {
   gsub("[^A-Z0-9_-]", "_", x)
 }
 
-
 safe_team_name <- function(x) {
 
   x <- safe_folder(x)
   x <- gsub("_+", "_", x)
 
+  # Ta bort vanliga prefix och suffix
+  x <- sub("^(IF|IK)_", "", x)
+  x <- sub("_(HC|IF|IK|HF|HK|SK|IS|BK)$", "", x)
+
+  # Specialnamn
   aliases <- c(
     "BIK_KARLSKOGA" = "KARLSKOGA",
     "MODO_HOCKEY" = "MODO",
@@ -48,95 +106,71 @@ safe_team_name <- function(x) {
     "VAXJO_LAKERS" = "VAXJO",
     "VISBY_ROMA" = "VISBY",
     "MALMO_REDHAWKS" = "MALMO",
-    "FARJESTAD_BK" = "FARJESTAD",
+    "FARJESTAD" = "FARJESTAD",
     "DJURGARDENS" = "DJURGARDEN",
     "SKELLEFTEA_AIK" = "SKELLEFTEA"
   )
 
   if (x %in% names(aliases)) {
-    return(unname(aliases[x]))
+    x <- unname(aliases[x])
   }
 
-  # Ta bort vanliga prefix
-  x <- sub("^(IF|IK)_", "", x)
-
-  # Ta bort vanliga föreningsbeteckningar i slutet
-  # AIK tas inte bort generellt
-  x <- sub("_(HC|IF|IK|HF|HK|SK|IS|BK)$", "", x)
-
-  # Ta bort återstående skiljetecken
   x <- gsub("[^A-Z0-9]", "", x)
 
   x
 }
 
+# Engelska månadsnamn oavsett systemets språk
+english_months <- c(
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+)
 
-# --------------------------------------------------
-# SKAPA FILNAMN
-# Exempel: SKELLEFTEA_BRYNAS_Nov_28.png
-# --------------------------------------------------
+make_match_filename <- function(home, away, match_datetime) {
 
-make_match_filename <- function(
-    home_name,
-    away_name,
-    match_datetime
-) {
+  home <- safe_team_name(home)
+  away <- safe_team_name(away)
 
-  local_date <- as.Date(format(
+  match_date <- as.Date(format(
     match_datetime,
     tz = "Europe/Stockholm",
     format = "%Y-%m-%d"
   ))
 
-  months <- c(
-    "Jan", "Feb", "Mar", "Apr",
-    "May", "Jun", "Jul", "Aug",
-    "Sep", "Oct", "Nov", "Dec"
-  )
-
-  month_name <- months[as.integer(format(local_date, "%m"))]
-  day_number <- as.integer(format(local_date, "%d"))
+  month_number <- as.integer(format(match_date, "%m"))
+  day_number <- format(match_date, "%d")
 
   paste0(
-    safe_team_name(home_name),
-    "_",
-    safe_team_name(away_name),
-    "_",
-    month_name,
-    "_",
+    home, "_",
+    away, "_",
+    english_months[month_number], "_",
     day_number,
     ".png"
   )
 }
 
-
 # --------------------------------------------------
-# HÄMTA BILD
+# HÄMTA OCH CACHa BILDER
 # --------------------------------------------------
 
 get_image <- function(url, cache_path = NULL) {
 
-  if (is.null(url) || is.na(url) || !nzchar(as.character(url))) {
+  if (is.null(url) || length(url) == 0 || is.na(url) || url == "") {
     return(NULL)
   }
 
-  url <- as.character(url)
-
-  # Läs lokal bild
-  if (file.exists(url)) {
-    return(tryCatch(
-      image_read(url),
-      error = function(e) {
-        message("Kunde inte läsa lokal bild: ", url)
-        NULL
-      }
-    ))
-  }
-
-  # Läs cache
+  # Använd befintlig cache
   if (!is.null(cache_path) && file.exists(cache_path)) {
     return(tryCatch(
       image_read(cache_path),
+      error = function(e) NULL
+    ))
+  }
+
+  # Lokal fil
+  if (file.exists(url)) {
+    return(tryCatch(
+      image_read(url),
       error = function(e) NULL
     ))
   }
@@ -146,7 +180,7 @@ get_image <- function(url, cache_path = NULL) {
   result <- tryCatch({
 
     curl_download(
-      url = url,
+      url,
       destfile = temp_file,
       quiet = TRUE
     )
@@ -158,7 +192,6 @@ get_image <- function(url, cache_path = NULL) {
     }
 
     if (!is.null(cache_path)) {
-
       dir.create(
         dirname(cache_path),
         recursive = TRUE,
@@ -168,16 +201,20 @@ get_image <- function(url, cache_path = NULL) {
       image_write(
         img,
         path = cache_path,
-        format = "png"
+        format = "png",
+        compression = "zip",
+        defines = c("png:compression-level=9")
       )
     }
 
     img
 
   }, error = function(e) {
-    message("Kunde inte hämta bild: ", url)
-    message(conditionMessage(e))
+
+    cat("Kunde inte hämta bild:", url, "\n")
+    cat("Fel:", conditionMessage(e), "\n")
     NULL
+
   })
 
   unlink(temp_file)
@@ -185,16 +222,11 @@ get_image <- function(url, cache_path = NULL) {
   result
 }
 
-
 # --------------------------------------------------
-# FÄRGA LOGOTYP VIT
+# LOGOTYPER
 # --------------------------------------------------
 
 make_white_logo <- function(img) {
-
-  if (is.null(img)) {
-    return(NULL)
-  }
 
   image_colorize(
     img,
@@ -203,34 +235,25 @@ make_white_logo <- function(img) {
   )
 }
 
-
-# --------------------------------------------------
-# ANPASSA LOGOTYPER
-# --------------------------------------------------
-
 fit_logo <- function(img, max_width, max_height) {
-
-  if (is.null(img)) {
-    return(NULL)
-  }
 
   img <- image_trim(img)
 
-  image_resize(
+  img <- image_resize(
     img,
     paste0(max_width, "x", max_height)
-  ) |>
-    image_extent(
-      geometry = paste0(max_width, "x", max_height),
-      gravity = "center",
-      color = "none"
-    )
-}
+  )
 
+  image_extent(
+    img,
+    geometry = paste0(max_width, "x", max_height),
+    gravity = "center",
+    color = "none"
+  )
+}
 
 # --------------------------------------------------
 # SKAPA MATCHBILD
-# Format: 1280 x 720
 # --------------------------------------------------
 
 create_match_image <- function(
@@ -244,78 +267,36 @@ create_match_image <- function(
     away_logo_url = NULL
 ) {
 
-  match_date <- as.Date(format(
-    match_datetime,
-    tz = "Europe/Stockholm",
-    format = "%Y-%m-%d"
-  ))
-
-  date_string <- format(match_date, "%Y-%m-%d")
-
   cat(
     "\nSkapar bild:",
     league,
     home_name,
     "-",
     away_name,
-    date_string,
     "\n"
   )
 
-  cat(
-    "Standardiserade namn:",
-    safe_team_name(home_name),
-    "-",
-    safe_team_name(away_name),
-    "\n"
-  )
-
-  # Cachade laglogotyper
-  home_logo_path <- file.path(
-    "players", league, home_code, "team-logo.png"
-  )
-
-  away_logo_path <- file.path(
-    "players", league, away_code, "team-logo.png"
-  )
-
-  # Hämta laglogotyper
-  home_logo <- get_image(home_logo_url, home_logo_path)
-  away_logo <- get_image(away_logo_url, away_logo_path)
-
-
-  # ------------------------------------------------
-  # 1. BAKGRUND
-  # ------------------------------------------------
-
-  bg_path <- file.path(
-    "assets",
-    "bg_hockey.jpg.webp"
-  )
+  # Bakgrund
+  bg_path <- file.path("assets", "bg_hockey.jpg.webp")
 
   if (file.exists(bg_path)) {
 
     canvas <- image_read(bg_path) |>
       image_resize("1280x720^") |>
-      image_extent(
-        "1280x720",
-        gravity = "center"
-      )
+      image_extent("1280x720", gravity = "center")
 
   } else {
 
-    message("Ingen bakgrundsbild hittades: ", bg_path)
-
     canvas <- image_blank(
-      width = 1280,
-      height = 720,
+      width = width,
+      height = height,
       color = "#101820"
     )
+
   }
 
-
   # ------------------------------------------------
-  # 2. LIGALOGOTYP
+  # LIGALOGO
   # ------------------------------------------------
 
   league_logo_path <- if (league == "HA") {
@@ -324,86 +305,104 @@ create_match_image <- function(
     file.path("assets", "SHL_logo.svg.webp")
   }
 
-  cat("Söker ligalogotyp:", league_logo_path, "\n")
-
   if (file.exists(league_logo_path)) {
 
     league_logo <- image_read(league_logo_path)
 
-    # Endast SHL-logotypen ska göras vit
+    # Endast SHL-logotypen ska vara vit
     if (league == "SHL") {
       league_logo <- make_white_logo(league_logo)
     }
 
-    league_logo <- fit_logo(
-      league_logo,
-      340,
-      120
-    )
+    # HA-logotypen dubbelt så stor som tidigare
+    if (league == "HA") {
+      league_logo <- fit_logo(league_logo, 680, 240)
+    } else {
+      league_logo <- fit_logo(league_logo, 340, 120)
+    }
 
     canvas <- image_composite(
       canvas,
       league_logo,
+      operator = "over",
       gravity = "north",
       offset = "+0+65"
     )
 
   } else {
 
-    message("Hittade ingen ligalogotyp: ", league_logo_path)
+    cat("Hittade inte ligalogotypen:", league_logo_path, "\n")
 
-    canvas <- image_annotate(
-      canvas,
-      text = league,
-      gravity = "north",
-      location = "+0+70",
-      size = 85,
-      color = "white",
-      font = "DejaVu-Sans-Bold"
-    )
   }
 
-
   # ------------------------------------------------
-  # 3. LAGLOGOTYPER
+  # LAGLOGOTYPER
   # ------------------------------------------------
 
-  home_logo <- fit_logo(home_logo, 360, 360)
-  away_logo <- fit_logo(away_logo, 360, 360)
+  home_cache <- file.path(
+    "players", league, home_code, "team-logo.png"
+  )
+
+  away_cache <- file.path(
+    "players", league, away_code, "team-logo.png"
+  )
+
+  home_logo <- get_image(home_logo_url, home_cache)
+  away_logo <- get_image(away_logo_url, away_cache)
 
   if (!is.null(home_logo)) {
+
+    home_logo <- fit_logo(home_logo, 360, 360)
 
     canvas <- image_composite(
       canvas,
       home_logo,
+      operator = "over",
       gravity = "west",
       offset = "+140+55"
     )
+
+  } else {
+
+    cat("Saknar logotyp för:", home_name, "\n")
+
   }
 
   if (!is.null(away_logo)) {
 
+    away_logo <- fit_logo(away_logo, 360, 360)
+
     canvas <- image_composite(
       canvas,
       away_logo,
+      operator = "over",
       gravity = "east",
       offset = "+140+55"
     )
+
+  } else {
+
+    cat("Saknar logotyp för:", away_name, "\n")
+
   }
 
-
   # ------------------------------------------------
-  # 4. SPARA MATCHBILD
+  # SPARA MATCHBILD
   # ------------------------------------------------
 
-  output_folder <- file.path(
-    "players",
-    "generated",
-    date_string
+  match_date <- format(
+    match_datetime,
+    tz = "Europe/Stockholm",
+    format = "%Y-%m-%d"
+  )
+
+  output_dir <- file.path(
+    generated_dir,
+    match_date
   )
 
   dir.create(
-    output_folder,
+    output_dir,
     recursive = TRUE,
     showWarnings = FALSE
   )
@@ -414,161 +413,148 @@ create_match_image <- function(
     match_datetime
   )
 
-  output_path <- file.path(
-    output_folder,
-    filename
-  )
+  output_path <- file.path(output_dir, filename)
 
   image_write(
     canvas,
     path = output_path,
-    format = "png"
+    format = "png",
+    compression = "zip",
+    defines = c("png:compression-level=9")
   )
 
-  cat("Bild sparad:", output_path, "\n")
+  cat("Sparad:", output_path, "\n")
 }
 
+# --------------------------------------------------
+# SÄSONG
+# --------------------------------------------------
+
+year <- as.integer(format(today, "%Y"))
+month <- as.integer(format(today, "%m"))
+
+season <- year + ifelse(month >= 7, 1, 0)
+
+cat("\nDatum:", as.character(today), "\n")
+cat("Säsong:", season, "\n")
 
 # --------------------------------------------------
 # HOCKEYALLSVENSKAN
-# TEST: ENDAST FÖRSTA KOMMANDE MATCHEN
 # --------------------------------------------------
 
-cat("\nHämtar HockeyAllsvenskans spelschema...\n")
+cat("\nHämtar HockeyAllsvenskan...\n")
 
 ha <- ha_schedule()
 
-if (!is.null(ha) && nrow(ha) > 0) {
+ha_datetime <- as.POSIXct(
+  ha$scheduled_date_time,
+  tz = "UTC"
+)
 
-  ha_datetime <- as.POSIXct(
-    ha$scheduled_date_time,
-    tz = "UTC"
-  )
+ha_dates <- as.Date(format(
+  ha_datetime,
+  tz = "Europe/Stockholm",
+  format = "%Y-%m-%d"
+))
 
-  ha_dates <- as.Date(
-    format(
-      ha_datetime,
-      tz = "Europe/Stockholm",
-      format = "%Y-%m-%d"
-    )
-  )
-
-  ha_matches <- which(
-    !is.na(ha_dates) &
+ha_matches <- which(
+  !is.na(ha_dates) &
     ha_dates >= today &
     ha_dates <= end_date &
     (is.na(ha$is_completed) | !ha$is_completed)
+)
+
+if (length(ha_matches) > 0) {
+
+  ha_matches <- ha_matches[
+    order(ha_datetime[ha_matches])
+  ]
+
+  cat(
+    "Hittade",
+    length(ha_matches),
+    "kommande HA-matcher.\n"
   )
 
-  if (length(ha_matches) > 0) {
+  # TEST: endast första kommande matchen
+  i <- ha_matches[1]
 
-    ha_matches <- ha_matches[
-      order(ha_datetime[ha_matches])
-    ]
-
-    cat(
-      "Hittade",
-      length(ha_matches),
-      "kommande HA-matcher.\n"
-    )
-
-    # Välj endast första matchen för test
-    i <- ha_matches[1]
-
-    create_match_image(
-      league = "HA",
-      home_code = ha$home_team_code[i],
-      away_code = ha$away_team_code[i],
-      home_name = ha$home_team_name[i],
-      away_name = ha$away_team_name[i],
-      match_datetime = ha_datetime[i],
-      home_logo_url = ha$home_team_logo_url[i],
-      away_logo_url = ha$away_team_logo_url[i]
-    )
-
-  } else {
-
-    cat("Ingen kommande HA-match hittades inom perioden.\n")
-  }
+  create_match_image(
+    league = "HA",
+    home_code = safe_folder(ha$home_team_code[i]),
+    away_code = safe_folder(ha$away_team_code[i]),
+    home_name = ha$home_team_name[i],
+    away_name = ha$away_team_name[i],
+    match_datetime = ha_datetime[i],
+    home_logo_url = ha$home_team_logo_url[i],
+    away_logo_url = ha$away_team_logo_url[i]
+  )
 
 } else {
 
-  cat("Kunde inte hämta HA-spelschemat.\n")
-}
+  cat("Inga kommande HA-matcher hittades.\n")
 
+}
 
 # --------------------------------------------------
 # SHL
-# TEST: ENDAST FÖRSTA KOMMANDE MATCHEN
 # --------------------------------------------------
 
-cat("\nHämtar SHL:s spelschema...\n")
+cat("\nHämtar SHL...\n")
 
 shl <- shl_schedule(
   season = season,
   game_type = "regular"
 )
 
-if (!is.null(shl) && nrow(shl) > 0) {
+shl_datetime <- as.POSIXct(
+  shl$start_date_time,
+  tz = "Europe/Stockholm"
+)
 
-  shl_datetime <- as.POSIXct(
-    shl$start_date_time,
-    tz = "Europe/Stockholm"
-  )
+shl_dates <- as.Date(format(
+  shl_datetime,
+  tz = "Europe/Stockholm",
+  format = "%Y-%m-%d"
+))
 
-  shl_dates <- as.Date(
-    format(
-      shl_datetime,
-      tz = "Europe/Stockholm",
-      format = "%Y-%m-%d"
-    )
-  )
-
-  shl_matches <- which(
-    !is.na(shl_dates) &
+shl_matches <- which(
+  !is.na(shl_dates) &
     shl_dates >= today &
     shl_dates <= end_date &
     (is.na(shl$state) | shl$state != "post-game")
+)
+
+if (length(shl_matches) > 0) {
+
+  shl_matches <- shl_matches[
+    order(shl_datetime[shl_matches])
+  ]
+
+  cat(
+    "Hittade",
+    length(shl_matches),
+    "kommande SHL-matcher.\n"
   )
 
-  if (length(shl_matches) > 0) {
+  # TEST: endast första kommande matchen
+  i <- shl_matches[1]
 
-    shl_matches <- shl_matches[
-      order(shl_datetime[shl_matches])
-    ]
-
-    cat(
-      "Hittade",
-      length(shl_matches),
-      "kommande SHL-matcher.\n"
-    )
-
-    # Välj endast första matchen för test
-    i <- shl_matches[1]
-
-    create_match_image(
-      league = "SHL",
-
-      home_code = shl$home_team_names_code[i],
-      away_code = shl$away_team_names_code[i],
-
-      home_name = shl$home_team_names_short[i],
-      away_name = shl$away_team_names_short[i],
-
-      match_datetime = shl_datetime[i],
-      home_logo_url = shl$home_team_icon[i],
-      away_logo_url = shl$away_team_icon[i]
-    )
-
-  } else {
-
-    cat("Ingen kommande SHL-match hittades inom perioden.\n")
-  }
+  create_match_image(
+    league = "SHL",
+    home_code = safe_folder(shl$home_team_names_code[i]),
+    away_code = safe_folder(shl$away_team_names_code[i]),
+    home_name = shl$home_team_names_short[i],
+    away_name = shl$away_team_names_short[i],
+    match_datetime = shl_datetime[i],
+    home_logo_url = shl$home_team_icon[i],
+    away_logo_url = shl$away_team_icon[i]
+  )
 
 } else {
 
-  cat("Kunde inte hämta SHL-spelschemat.\n")
-}
+  cat("Inga kommande SHL-matcher hittades.\n")
 
+}
 
 cat("\nKlart!\n")
