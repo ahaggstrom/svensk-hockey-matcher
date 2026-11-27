@@ -6,10 +6,6 @@ host <- sub("/+$", "", Sys.getenv("IPTV_HOST"))
 username <- Sys.getenv("IPTV_USERNAME")
 password <- Sys.getenv("IPTV_PASSWORD")
 
-if (host == "" || username == "" || password == "") {
-  stop("IPTV Secrets saknas.")
-}
-
 get_api <- function(action) {
   url <- paste0(
     host,
@@ -30,59 +26,37 @@ get_api <- function(action) {
   fromJSON(rawToChar(response$content), simplifyVector = FALSE)
 }
 
-cat("Hämtar kategorier...\n")
+cat("Hämtar kategorier...\n", flush = TRUE)
 categories <- get_api("get_live_categories")
 
-cat("Hämtar kanaler...\n")
+cat("Antal kategorier:", length(categories), "\n", flush = TRUE)
+
+cat("Hämtar kanaler...\n", flush = TRUE)
 channels <- get_api("get_live_streams")
 
-# Gör om API-listorna till dataframes
-category_df <- do.call(rbind, lapply(categories, function(x) {
-  data.frame(
-    category_id = x$category_id,
-    category_name = x$category_name,
-    stringsAsFactors = FALSE
-  )
-}))
+cat("Antal kanaler:", length(channels), "\n", flush = TRUE)
 
-channel_df <- do.call(rbind, lapply(channels, function(x) {
-  data.frame(
-    name = x$name,
-    stream_id = x$stream_id,
-    category_id = x$category_id,
-    stringsAsFactors = FALSE
-  )
-}))
+cat("\nSöker efter PPV-kategorier...\n", flush = TRUE)
 
-# Hitta de två aktuella kategorierna
-target_categories <- category_df[
-  grepl("SWEDEN TV 4 PLAY PPV", category_df$category_name, ignore.case = TRUE),
-]
+for (category in categories) {
+  category_name <- category$category_name
 
-cat("\n====================================\n")
-cat("MATCHANDE KATEGORIER\n")
-cat("====================================\n")
+  if (grepl("SWEDEN TV 4 PLAY PPV", category_name, ignore.case = TRUE)) {
+    category_id <- category$category_id
 
-if (nrow(target_categories) == 0) {
-  cat("Inga matchande kategorier hittades.\n")
-} else {
-  for (i in seq_len(nrow(target_categories))) {
-    id <- target_categories$category_id[i]
-    category_name <- target_categories$category_name[i]
-
-    matching_channels <- channel_df[
-      channel_df$category_id == id,
-    ]
+    matching <- Filter(
+      function(channel) identical(channel$category_id, category_id),
+      channels
+    )
 
     cat("\nKategori:", category_name, "\n")
-    cat("Kategori-ID:", id, "\n")
-    cat("Antal kanaler:", nrow(matching_channels), "\n")
-    cat("------------------------------------\n")
+    cat("Kategori-ID:", category_id, "\n")
+    cat("Antal kanaler:", length(matching), "\n")
 
-    if (nrow(matching_channels) > 0) {
-      cat(paste(matching_channels$name, collapse = "\n"), "\n")
+    for (channel in matching) {
+      cat(" - ", channel$name, "\n", sep = "")
     }
   }
 }
 
-cat("\nDIAGNOSTIK KLAR\n")
+cat("\nDIAGNOSTIK KLAR\n", flush = TRUE)
