@@ -1,65 +1,87 @@
 
-# Testa Strong 8K via Xtream Codes API
-
-host <- "http://enough62794.wd.business-cloud-8.ru"
-
+host <- sub("/+$", "", Sys.getenv("IPTV_HOST"))
 username <- Sys.getenv("IPTV_USERNAME")
 password <- Sys.getenv("IPTV_PASSWORD")
 
-if (username == "" || password == "") {
-  stop("IPTV_USERNAME eller IPTV_PASSWORD saknas.")
+if (host == "" || username == "" || password == "") {
+  stop("IPTV Secrets saknas.")
 }
 
-api_url <- paste0(
-  host,
-  "/player_api.php?username=",
-  curl::curl_escape(username),
-  "&password=",
-  curl::curl_escape(password),
-  "&action=get_live_streams"
-)
-
-cat("Ansluter till Strong 8K API...\n")
-
-response <- tryCatch({
-  handle <- curl::new_handle(
-    followlocation = TRUE,
-    connecttimeout = 20,
-    timeout = 180,
-    useragent = "VLC/3.0.18 LibVLC/3.0.18"
+get_api <- function(action) {
+  url <- paste0(
+    host,
+    "/player_api.php?username=",
+    curl::curl_escape(username),
+    "&password=",
+    curl::curl_escape(password),
+    "&action=",
+    action
   )
 
-  curl::curl_fetch_memory(api_url, handle = handle)
+  response <- curl::curl_fetch_memory(
+    url,
+    handle = curl::new_handle(
+      followlocation = TRUE,
+      connecttimeout = 20,
+      timeout = 180,
+      useragent = "VLC/3.0.18"
+    )
+  )
 
-}, error = function(e) {
-  stop("Kunde inte ansluta till IPTV API.")
-})
+  if (response$status_code != 200) {
+    stop("IPTV API misslyckades: ", action)
+  }
 
-if (response$status_code != 200) {
-  stop(paste("API svarade med HTTP-status:", response$status_code))
-}
-
-data <- tryCatch({
   jsonlite::fromJSON(
     rawToChar(response$content),
     simplifyVector = TRUE
   )
-}, error = function(e) {
-  stop("API-svaret kunde inte läsas som JSON.")
-})
-
-if (!is.data.frame(data) || !"name" %in% names(data)) {
-  stop("API-svaret innehöll inte förväntade kanaluppgifter.")
 }
 
-channel_names <- unique(data$name)
-channel_names <- channel_names[!is.na(channel_names)]
+cat("Hämtar kategorier från Strong 8K...\n")
+categories <- get_api("get_live_categories")
 
-cat("\nAnslutningen lyckades!\n")
-cat("Antal kanaler:", length(channel_names), "\n\n")
+cat("Hämtar kanaler från Strong 8K...\n")
+channels <- get_api("get_live_streams")
 
-cat("Exempel på kanalnamn:\n")
-
-for (name in head(channel_names, 20)) {
-  cat("-", name, "\n")
+if (!all(c("category_id", "category_name") %in% names(categories))) {
+  stop("API-svaret saknar category_id eller category_name.")
 }
+
+if (!all(c("category_id", "name") %in% names(channels))) {
+  stop("API-svaret saknar category_id eller name.")
+}
+
+categories$category_id <- as.character(categories$category_id)
+channels$category_id <- as.character(channels$category_id)
+
+channel_counts <- table(channels$category_id)
+
+categories$channel_count <- as.integer(
+  channel_counts[categories$category_id]
+)
+
+categories$channel_count[
+  is.na(categories$channel_count)
+] <- 0L
+
+categories <- categories[
+  order(categories$category_name),
+]
+
+cat("\n====================================\n")
+cat("KATEGORIER I STRONG 8K\n")
+cat("====================================\n\n")
+
+for (i in seq_len(nrow(categories))) {
+  cat(
+    categories$category_name[i],
+    " — ",
+    categories$channel_count[i],
+    " kanaler\n",
+    sep = ""
+  )
+}
+
+cat("\nTotalt antal kategorier:", nrow(categories), "\n")
+cat("Totalt antal kanaler:", nrow(channels), "\n")
