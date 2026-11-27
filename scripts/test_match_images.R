@@ -24,6 +24,7 @@ season <- year + ifelse(month >= 7, 1, 0)
 cat("Dagens datum:", as.character(today), "\n")
 cat("Säsong:", season, "\n")
 
+
 # --------------------------------------------------
 # HJÄLPFUNKTIONER FÖR FILNAMN
 # --------------------------------------------------
@@ -34,52 +35,61 @@ safe_folder <- function(x) {
   gsub("[^A-Z0-9_-]", "_", x)
 }
 
-# Tar bort vanliga klubbförkortningar i slutet av lagnamnet.
-# Exempel: Linkoping HC -> LINKOPING
-#          Brynas IF    -> BRYNAS
 
 safe_team_name <- function(x) {
+
   x <- safe_folder(x)
-  x <- sub("_(HC|IF|IK|HF)$", "", x)
+
+  # Ta bort IF som prefix
+  x <- sub("^IF_", "", x)
+
+  # Ta bort vanliga klubbändelser
+  x <- sub("_(BK|HC|IF|IK|HF|HK|SK|IS)$", "", x)
+
+  # Särskilda namnregler
+  x <- sub("^BIK_KARLSKOGA$", "KARLSKOGA", x)
+  x <- sub("^MODO_HOCKEY$", "MODO", x)
+  x <- sub("^VAXJO_LAKERS$", "VAXJO", x)
+  x <- sub("^VISBY_ROMA$", "VISBY", x)
+  x <- sub("^MALMO_REDHAWKS$", "MALMO", x)
+
+  # Behåll endast bokstäver och siffror
+  x <- gsub("[^A-Z0-9]", "", x)
+
   x
 }
 
-# Skapar datum och tid i formatet:
-# Nov_26_6:45_PM
 
-make_match_filename <- function(home_name, away_name, match_datetime) {
+# --------------------------------------------------
+# SKAPA FILNAMN
+# Format: LINKOPING_BRYNAS_Nov_26.png
+# --------------------------------------------------
+
+make_match_filename <- function(
+    home_name,
+    away_name,
+    match_datetime
+) {
 
   months <- c(
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
   )
 
-  local_time <- as.POSIXlt(match_datetime, tz = "Europe/Stockholm")
-
-  month_text <- months[local_time$mon + 1]
-  day_text <- local_time$mday
-
-  hour_24 <- local_time$hour
-  minute <- sprintf("%02d", local_time$min)
-
-  am_pm <- if (hour_24 >= 12) "PM" else "AM"
-  hour_12 <- hour_24 %% 12
-
-  if (hour_12 == 0) {
-    hour_12 <- 12
-  }
-
-  time_text <- paste0(hour_12, ":", minute, "_", am_pm)
+  local_time <- as.POSIXlt(
+    match_datetime,
+    tz = "Europe/Stockholm"
+  )
 
   paste0(
     safe_team_name(home_name), "_",
     safe_team_name(away_name), "_",
-    month_text, "_",
-    day_text, "_",
-    time_text,
+    months[local_time$mon + 1], "_",
+    local_time$mday,
     ".png"
   )
 }
+
 
 # --------------------------------------------------
 # HÄMTA BILD
@@ -127,6 +137,7 @@ get_image <- function(url, cache_path = NULL) {
     }
 
     if (!is.null(cache_path)) {
+
       dir.create(
         dirname(cache_path),
         recursive = TRUE,
@@ -153,8 +164,10 @@ get_image <- function(url, cache_path = NULL) {
   result
 }
 
+
 # --------------------------------------------------
 # FÄRGA LIGALOGOTYP VIT
+# Behåller transparensen
 # --------------------------------------------------
 
 make_white_logo <- function(img) {
@@ -169,6 +182,7 @@ make_white_logo <- function(img) {
     color = "white"
   )
 }
+
 
 # --------------------------------------------------
 # ANPASSA LOGOTYPER
@@ -192,6 +206,7 @@ fit_logo <- function(img, max_width, max_height) {
       color = "none"
     )
 }
+
 
 # --------------------------------------------------
 # SKAPA MATCHBILD
@@ -240,6 +255,7 @@ create_match_image <- function(
   home_logo <- get_image(home_logo_url, home_logo_path)
   away_logo <- get_image(away_logo_url, away_logo_path)
 
+
   # ------------------------------------------------
   # 1. BAKGRUND
   # ------------------------------------------------
@@ -273,8 +289,10 @@ create_match_image <- function(
     )
   }
 
+
   # ------------------------------------------------
   # 2. LIGALOGOTYP
+  # Gör logotypen vit
   # ------------------------------------------------
 
   league_logo_path <- file.path(
@@ -289,6 +307,7 @@ create_match_image <- function(
     league_logo <- image_read(league_logo_path)
 
     league_logo <- make_white_logo(league_logo)
+
     league_logo <- fit_logo(league_logo, 340, 120)
 
     canvas <- image_composite(
@@ -312,6 +331,7 @@ create_match_image <- function(
       font = "DejaVu-Sans-Bold"
     )
   }
+
 
   # ------------------------------------------------
   # 3. LAGLOGOTYPER
@@ -339,6 +359,7 @@ create_match_image <- function(
       offset = "+140+55"
     )
   }
+
 
   # ------------------------------------------------
   # 4. SPARA MATCHBILD
@@ -375,6 +396,7 @@ create_match_image <- function(
 
   cat("Bild sparad:", output_path, "\n")
 }
+
 
 # --------------------------------------------------
 # HOCKEYALLSVENSKAN
@@ -429,6 +451,7 @@ if (!is.null(ha) && nrow(ha) > 0) {
   cat("Kunde inte hämta HA-spelschemat.\n")
 }
 
+
 # --------------------------------------------------
 # SHL
 # --------------------------------------------------
@@ -476,6 +499,7 @@ if (!is.null(shl) && nrow(shl) > 0) {
       away_name = shl$away_team_names_short[i],
 
       match_datetime = shl_datetime[i],
+
       home_logo_url = shl$home_team_icon[i],
       away_logo_url = shl$away_team_icon[i]
     )
