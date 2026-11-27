@@ -41,7 +41,6 @@ safe_team_name <- function(x) {
   x <- safe_folder(x)
   x <- gsub("_+", "_", x)
 
-  # Särskilda namn som behöver egna regler
   aliases <- c(
     "BIK_KARLSKOGA" = "KARLSKOGA",
     "MODO_HOCKEY" = "MODO",
@@ -188,8 +187,7 @@ get_image <- function(url, cache_path = NULL) {
 
 
 # --------------------------------------------------
-# FÄRGA LIGALOGOTYP VIT
-# Behåller transparensen
+# FÄRGA LOGOTYP VIT
 # --------------------------------------------------
 
 make_white_logo <- function(img) {
@@ -255,7 +253,7 @@ create_match_image <- function(
   date_string <- format(match_date, "%Y-%m-%d")
 
   cat(
-    "Skapar bild:",
+    "\nSkapar bild:",
     league,
     home_name,
     "-",
@@ -306,11 +304,7 @@ create_match_image <- function(
 
   } else {
 
-    message(
-      "Ingen bakgrundsbild hittades i ",
-      bg_path,
-      " – använder enfärgad bakgrund."
-    )
+    message("Ingen bakgrundsbild hittades: ", bg_path)
 
     canvas <- image_blank(
       width = 1280,
@@ -324,10 +318,11 @@ create_match_image <- function(
   # 2. LIGALOGOTYP
   # ------------------------------------------------
 
-  league_logo_path <- file.path(
-    "assets",
-    paste0(league, "_logo.svg.webp")
-  )
+  league_logo_path <- if (league == "HA") {
+    file.path("assets", "HA_logo.png.png")
+  } else {
+    file.path("assets", "SHL_logo.svg.webp")
+  }
 
   cat("Söker ligalogotyp:", league_logo_path, "\n")
 
@@ -335,11 +330,16 @@ create_match_image <- function(
 
     league_logo <- image_read(league_logo_path)
 
-    # Gör logotypen vit
-    league_logo <- make_white_logo(league_logo)
+    # Endast SHL-logotypen ska göras vit
+    if (league == "SHL") {
+      league_logo <- make_white_logo(league_logo)
+    }
 
-    # Anpassa storleken
-    league_logo <- fit_logo(league_logo, 340, 120)
+    league_logo <- fit_logo(
+      league_logo,
+      340,
+      120
+    )
 
     canvas <- image_composite(
       canvas,
@@ -431,6 +431,7 @@ create_match_image <- function(
 
 # --------------------------------------------------
 # HOCKEYALLSVENSKAN
+# TEST: ENDAST FÖRSTA KOMMANDE MATCHEN
 # --------------------------------------------------
 
 cat("\nHämtar HockeyAllsvenskans spelschema...\n")
@@ -452,15 +453,26 @@ if (!is.null(ha) && nrow(ha) > 0) {
     )
   )
 
-ha_matches <- which(
-  !is.na(ha_dates) &
-  ha_dates >= today &
-  ha_dates <= end_date &
-  (is.na(ha$is_completed) | !ha$is_completed)
-)
+  ha_matches <- which(
+    !is.na(ha_dates) &
+    ha_dates >= today &
+    ha_dates <= end_date &
+    (is.na(ha$is_completed) | !ha$is_completed)
+  )
 
   if (length(ha_matches) > 0) {
 
+    ha_matches <- ha_matches[
+      order(ha_datetime[ha_matches])
+    ]
+
+    cat(
+      "Hittade",
+      length(ha_matches),
+      "kommande HA-matcher.\n"
+    )
+
+    # Välj endast första matchen för test
     i <- ha_matches[1]
 
     create_match_image(
@@ -487,6 +499,7 @@ ha_matches <- which(
 
 # --------------------------------------------------
 # SHL
+# TEST: ENDAST FÖRSTA KOMMANDE MATCHEN
 # --------------------------------------------------
 
 cat("\nHämtar SHL:s spelschema...\n")
@@ -512,14 +525,25 @@ if (!is.null(shl) && nrow(shl) > 0) {
   )
 
   shl_matches <- which(
+    !is.na(shl_dates) &
     shl_dates >= today &
     shl_dates <= end_date &
-    !is.na(shl$state) &
-    shl$state != "post-game"
+    (is.na(shl$state) | shl$state != "post-game")
   )
 
   if (length(shl_matches) > 0) {
 
+    shl_matches <- shl_matches[
+      order(shl_datetime[shl_matches])
+    ]
+
+    cat(
+      "Hittade",
+      length(shl_matches),
+      "kommande SHL-matcher.\n"
+    )
+
+    # Välj endast första matchen för test
     i <- shl_matches[1]
 
     create_match_image(
