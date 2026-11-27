@@ -495,19 +495,20 @@ if (length(ha_matches) > 0) {
     "kommande HA-matcher.\n"
   )
 
-  # TEST: endast första kommande matchen
-  i <- ha_matches[1]
+  for (i in ha_matches) {
 
-  create_match_image(
-    league = "HA",
-    home_code = safe_folder(ha$home_team_code[i]),
-    away_code = safe_folder(ha$away_team_code[i]),
-    home_name = ha$home_team_name[i],
-    away_name = ha$away_team_name[i],
-    match_datetime = ha_datetime[i],
-    home_logo_url = ha$home_team_logo_url[i],
-    away_logo_url = ha$away_team_logo_url[i]
-  )
+    create_match_image(
+      league = "HA",
+      home_code = safe_folder(ha$home_team_code[i]),
+      away_code = safe_folder(ha$away_team_code[i]),
+      home_name = ha$home_team_name[i],
+      away_name = ha$away_team_name[i],
+      match_datetime = ha_datetime[i],
+      home_logo_url = ha$home_team_logo_url[i],
+      away_logo_url = ha$away_team_logo_url[i]
+    )
+
+  }
 
 } else {
 
@@ -556,19 +557,20 @@ if (length(shl_matches) > 0) {
     "kommande SHL-matcher.\n"
   )
 
-  # TEST: endast första kommande matchen
-  i <- shl_matches[1]
+  for (i in shl_matches) {
 
-  create_match_image(
-    league = "SHL",
-    home_code = safe_folder(shl$home_team_names_code[i]),
-    away_code = safe_folder(shl$away_team_names_code[i]),
-    home_name = shl$home_team_names_short[i],
-    away_name = shl$away_team_names_short[i],
-    match_datetime = shl_datetime[i],
-    home_logo_url = shl$home_team_icon[i],
-    away_logo_url = shl$away_team_icon[i]
-  )
+    create_match_image(
+      league = "SHL",
+      home_code = safe_folder(shl$home_team_names_code[i]),
+      away_code = safe_folder(shl$away_team_names_code[i]),
+      home_name = shl$home_team_names_short[i],
+      away_name = shl$away_team_names_short[i],
+      match_datetime = shl_datetime[i],
+      home_logo_url = shl$home_team_icon[i],
+      away_logo_url = shl$away_team_icon[i]
+    )
+
+  }
 
 } else {
 
