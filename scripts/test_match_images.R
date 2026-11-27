@@ -22,6 +22,9 @@ generated_dir <- file.path("players", "generated")
 
 dir.create(generated_dir, recursive = TRUE, showWarnings = FALSE)
 
+# PNG-komprimering
+png_defines <- c("png:compression-level" = "9")
+
 # --------------------------------------------------
 # RENSNING AV GAMLA BILDER
 # Tar bort genererade bilder äldre än 7 dagar
@@ -192,6 +195,7 @@ get_image <- function(url, cache_path = NULL) {
     }
 
     if (!is.null(cache_path)) {
+
       dir.create(
         dirname(cache_path),
         recursive = TRUE,
@@ -203,7 +207,7 @@ get_image <- function(url, cache_path = NULL) {
         path = cache_path,
         format = "png",
         compression = "zip",
-        defines = c("png:compression-level=9")
+        defines = png_defines
       )
     }
 
@@ -420,7 +424,7 @@ create_match_image <- function(
     path = output_path,
     format = "png",
     compression = "zip",
-    defines = c("png:compression-level=9")
+    defines = png_defines
   )
 
   cat("Sparad:", output_path, "\n")
