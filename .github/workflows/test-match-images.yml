@@ -1,7 +1,9 @@
 
-name: Testa matchbilder
+name: Uppdatera matchbilder och IPTV-logotyper
 
 on:
+  schedule:
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,18 +18,36 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Hamta repository
+      - name: Kontrollera svensk tid
+        id: time
+        run: |
+          HOUR=$(TZ=Europe/Stockholm date +%H)
+          MINUTE=$(TZ=Europe/Stockholm date +%M)
+
+          if [[ "$HOUR" =~ ^(08|14|17)$ ]] && [ "$MINUTE" -lt 30 ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Svensk tid: $(TZ=Europe/Stockholm date)"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Ingen schemalagd körning just nu."
+          fi
+
+      - name: Hämta repository
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/checkout@v4
 
       - name: Installera R
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         uses: r-lib/actions/setup-r@v2
 
       - name: Installera bildbibliotek
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           sudo apt-get update
           sudo apt-get install -y libmagick++-dev librsvg2-dev
 
       - name: Installera paket
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           Rscript -e 'install.packages("pak")'
           Rscript -e 'install.packages("curl")'
@@ -38,25 +58,29 @@ jobs:
           Rscript -e 'pak::pkg_install("sportsdataverse/fastRhockey")'
 
       - name: Uppdatera laglistan
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           Rscript scripts/update_teams.R
 
-      - name: Skapa testbilder
+      - name: Skapa matchbilder
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           Rscript scripts/test_match_images.R
 
-      - name: Testa IPTV API
+      - name: Skapa IPTV-bildkopior
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         env:
           IPTV_HOST: ${{ secrets.IPTV_HOST }}
           IPTV_USERNAME: ${{ secrets.IPTV_USERNAME }}
           IPTV_PASSWORD: ${{ secrets.IPTV_PASSWORD }}
         run: |
-          Rscript scripts/test_iptv_m3u.R
+          Rscript scripts/test_iptv_matching.R
 
       - name: Spara resultat i GitHub
+        if: steps.time.outputs.run == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add players/generated/ scripts/teams.csv
-          git diff --cached --quiet || git commit -m "Update hockey teams and match images"
+          git diff --cached --quiet || git commit -m "Update hockey match images and IPTV logos"
           git push
