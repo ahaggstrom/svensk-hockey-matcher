@@ -47,6 +47,7 @@ jobs:
 
       - name: Testa IPTV API
         env:
+          IPTV_HOST: ${{ secrets.IPTV_HOST }}
           IPTV_USERNAME: ${{ secrets.IPTV_USERNAME }}
           IPTV_PASSWORD: ${{ secrets.IPTV_PASSWORD }}
         run: |
