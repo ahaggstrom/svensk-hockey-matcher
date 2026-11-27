@@ -6,40 +6,51 @@ host <- sub("/+$", "", Sys.getenv("IPTV_HOST"))
 username <- Sys.getenv("IPTV_USERNAME")
 password <- Sys.getenv("IPTV_PASSWORD")
 
-url <- paste0(
-  host,
-  "/player_api.php?username=",
-  curl_escape(username),
-  "&password=",
-  curl_escape(password),
-  "&action=get_live_categories"
-)
+get_api <- function(action) {
+  url <- paste0(
+    host,
+    "/player_api.php?username=",
+    curl_escape(username),
+    "&password=",
+    curl_escape(password),
+    "&action=",
+    action
+  )
 
-response <- curl_fetch_memory(url)
+  response <- curl_fetch_memory(url)
 
-if (response$status_code != 200) {
-  stop("API-fel: HTTP ", response$status_code)
+  if (response$status_code != 200) {
+    stop("API-fel: HTTP ", response$status_code)
+  }
+
+  fromJSON(rawToChar(response$content), simplifyVector = FALSE)
 }
 
-categories <- fromJSON(
-  rawToChar(response$content),
-  simplifyVector = FALSE
-)
+categories <- get_api("get_live_categories")
+channels <- get_api("get_live_streams")
 
-cat("Kategorier som innehåller TV 4 eller TV4:\n\n")
+target_ids <- c("462", "1416")
 
-found <- 0
+for (id in target_ids) {
+  category <- Filter(
+    function(x) identical(x$category_id, id),
+    categories
+  )
 
-for (category in categories) {
-  if (grepl("TV\\s*4", category$category_name, ignore.case = TRUE)) {
-    cat(
-      "ID: ", category$category_id,
-      " | Namn: ", category$category_name,
-      "\n",
-      sep = ""
-    )
-    found <- found + 1
+  matching <- Filter(
+    function(x) identical(x$category_id, id),
+    channels
+  )
+
+  cat("\n====================================\n")
+  cat("KATEGORI:", category[[1]]$category_name, "\n")
+  cat("ID:", id, "\n")
+  cat("ANTAL KANALER:", length(matching), "\n")
+  cat("====================================\n")
+
+  for (channel in matching) {
+    cat(channel$name, "\n")
   }
 }
 
-cat("\nAntal träffar:", found, "\n")
+cat("\nTEST KLAR\n")
