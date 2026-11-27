@@ -3,8 +3,6 @@ name: Testa matchbilder
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "*/15 * * * *"
 
 permissions:
   contents: write
@@ -41,13 +39,12 @@ jobs:
         run: |
           Rscript scripts/test_match_images.R
 
-      - name: Uppdatera alternativa logotypnamn
+      - name: Testa IPTV M3U
         env:
-          IPTV_HOST: ${{ secrets.IPTV_HOST }}
           IPTV_USERNAME: ${{ secrets.IPTV_USERNAME }}
           IPTV_PASSWORD: ${{ secrets.IPTV_PASSWORD }}
         run: |
-          Rscript scripts/update_iptv_logos.R
+          Rscript scripts/test_iptv_m3u.R
 
       - name: Spara bilder i GitHub
         run: |
