@@ -1,51 +1,67 @@
 
 library(rvest)
-library(xml2)
 
-# Officiella laglistor från Svenska Ishockeyförbundet
 shl_url <- "https://swehockey.se/foerening/sport/serier/shl/"
 ha_url <- "https://swehockey.se/foerening/sport/serier/hockeyallsvenskan/"
 
-get_teams <- function(url, pattern) {
+get_teams <- function(url, heading_pattern, next_heading_pattern) {
 
   page <- read_html(url)
 
   headings <- html_elements(page, "h1, h2, h3, h4")
   heading_text <- html_text2(headings)
 
-  index <- which(grepl(pattern, heading_text, ignore.case = TRUE))[1]
+  start <- which(grepl(heading_pattern, heading_text, ignore.case = TRUE))[1]
 
-  if (is.na(index)) {
+  if (is.na(start)) {
     stop("Kunde inte hitta rubriken för laglistan.")
   }
 
-  team_list <- xml_find_first(
-    headings[[index]],
-    "following-sibling::ul[1]"
-  )
+  end <- which(
+    seq_along(heading_text) > start &
+      grepl(next_heading_pattern, heading_text, ignore.case = TRUE)
+  )[1]
 
-  if (inherits(team_list, "xml_missing")) {
-    stop("Kunde inte hitta laglistan på sidan.")
+  if (is.na(end)) {
+    end <- length(heading_text) + 1
   }
 
-  teams <- html_elements(team_list, "a") |>
-    html_text2()
+  container <- xml_parent(headings[[start]])
 
-  teams <- unique(trimws(teams))
-  teams <- teams[teams != ""]
+  elements <- xml_find_all(
+    container,
+    ".//li | .//a"
+  )
+
+  teams <- html_text2(elements)
+  teams <- trimws(teams)
+  teams <- unique(teams[teams != ""])
+
+  teams <- teams[
+    !grepl("Visa länkar|Lagen i|Historik", teams, ignore.case = TRUE)
+  ]
 
   teams
 }
 
-cat("Hämtar SHL-lag...\n")
-shl <- get_teams(shl_url, "^Lagen i SHL")
+cat("Hämtar SHL...\n")
+shl <- get_teams(
+  shl_url,
+  "^Lagen i SHL",
+  "SM herr|SHL Historik"
+)
 
-cat("Hämtar HockeyAllsvenska lag...\n")
-ha <- get_teams(ha_url, "^Lagen i HA")
+cat("Hämtar HockeyAllsvenskan...\n")
+ha <- get_teams(
+  ha_url,
+  "^Lagen i HA",
+  "Hockeyallsvenskan Historik"
+)
 
-# Kontrollera att båda serierna innehåller 14 lag
 if (length(shl) != 14 || length(ha) != 14) {
-  stop("Fel antal lag. Laglistan uppdateras inte.")
+  cat("SHL:", length(shl), "lag\n")
+  cat("HockeyAllsvenskan:", length(ha), "lag\n")
+  stop("Fel antal lag. Uppdateringen avbryts.")
 }
 
 teams <- data.frame(
@@ -64,7 +80,4 @@ write.csv(
 )
 
 cat("\nUppdateringen lyckades!\n")
-cat("SHL:", length(shl), "lag\n")
-cat("HockeyAllsvenskan:", length(ha), "lag\n")
-
 print(teams)
