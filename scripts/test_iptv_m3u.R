@@ -16,17 +16,30 @@ url <- paste0(
 )
 
 response <- curl_fetch_memory(url)
-categories <- fromJSON(rawToChar(response$content), simplifyVector = FALSE)
 
-cat("Kategorier som innehåller SWEDEN:\n\n")
+if (response$status_code != 200) {
+  stop("API-fel: HTTP ", response$status_code)
+}
+
+categories <- fromJSON(
+  rawToChar(response$content),
+  simplifyVector = FALSE
+)
+
+cat("Kategorier som innehåller TV 4 eller TV4:\n\n")
+
+found <- 0
 
 for (category in categories) {
-  if (grepl("SWEDEN", category$category_name, ignore.case = TRUE)) {
+  if (grepl("TV\\s*4", category$category_name, ignore.case = TRUE)) {
     cat(
       "ID: ", category$category_id,
       " | Namn: ", category$category_name,
       "\n",
       sep = ""
     )
+    found <- found + 1
   }
 }
+
+cat("\nAntal träffar:", found, "\n")
