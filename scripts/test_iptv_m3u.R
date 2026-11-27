@@ -1,4 +1,7 @@
 
+library(curl)
+library(jsonlite)
+
 host <- sub("/+$", "", Sys.getenv("IPTV_HOST"))
 username <- Sys.getenv("IPTV_USERNAME")
 password <- Sys.getenv("IPTV_PASSWORD")
@@ -11,77 +14,46 @@ get_api <- function(action) {
   url <- paste0(
     host,
     "/player_api.php?username=",
-    curl::curl_escape(username),
+    curl_escape(username),
     "&password=",
-    curl::curl_escape(password),
+    curl_escape(password),
     "&action=",
     action
   )
 
-  response <- curl::curl_fetch_memory(
-    url,
-    handle = curl::new_handle(
-      followlocation = TRUE,
-      connecttimeout = 20,
-      timeout = 180,
-      useragent = "VLC/3.0.18"
-    )
-  )
+  response <- curl_fetch_memory(url)
 
   if (response$status_code != 200) {
-    stop("IPTV API misslyckades: ", action)
+    stop("API-fel: HTTP ", response$status_code)
   }
 
-  jsonlite::fromJSON(
-    rawToChar(response$content),
-    simplifyVector = TRUE
-  )
+  fromJSON(rawToChar(response$content), simplifyVector = FALSE)
 }
 
-cat("Hämtar kategorier från Strong 8K...\n")
+cat("\nHÄMTAR KATEGORIER...\n")
+
 categories <- get_api("get_live_categories")
 
-cat("Hämtar kanaler från Strong 8K...\n")
+cat("\nANTAL KATEGORIER:", length(categories), "\n")
+cat("\nFÖRSTA 5 KATEGORIERNA – ALLA FÄLT:\n\n")
+
+for (i in seq_len(min(5, length(categories)))) {
+  cat("Kategori ", i, ":\n", sep = "")
+  str(categories[[i]])
+  cat("\n")
+}
+
+cat("\nHÄMTAR KANALER...\n")
+
 channels <- get_api("get_live_streams")
 
-if (!all(c("category_id", "category_name") %in% names(categories))) {
-  stop("API-svaret saknar category_id eller category_name.")
+cat("\nANTAL KANALER:", length(channels), "\n")
+cat("\nFÖRSTA 3 KANALERNA – ALLA FÄLT:\n\n")
+
+for (i in seq_len(min(3, length(channels)))) {
+  cat("Kanal ", i, ":\n", sep = "")
+  str(channels[[i]])
+  cat("\n")
 }
 
-if (!all(c("category_id", "name") %in% names(channels))) {
-  stop("API-svaret saknar category_id eller name.")
-}
-
-categories$category_id <- as.character(categories$category_id)
-channels$category_id <- as.character(channels$category_id)
-
-channel_counts <- table(channels$category_id)
-
-categories$channel_count <- as.integer(
-  channel_counts[categories$category_id]
-)
-
-categories$channel_count[
-  is.na(categories$channel_count)
-] <- 0L
-
-categories <- categories[
-  order(categories$category_name),
-]
-
-cat("\n====================================\n")
-cat("KATEGORIER I STRONG 8K\n")
-cat("====================================\n\n")
-
-for (i in seq_len(nrow(categories))) {
-  cat(
-    categories$category_name[i],
-    " — ",
-    categories$channel_count[i],
-    " kanaler\n",
-    sep = ""
-  )
-}
-
-cat("\nTotalt antal kategorier:", nrow(categories), "\n")
-cat("Totalt antal kanaler:", nrow(channels), "\n")
+cat("\nDIAGNOSTIK KLAR\n")
