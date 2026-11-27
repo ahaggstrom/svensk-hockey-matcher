@@ -33,13 +33,14 @@ jobs:
           Rscript -e 'install.packages("curl")'
           Rscript -e 'install.packages("magick")'
           Rscript -e 'install.packages("rsvg")'
+          Rscript -e 'install.packages("jsonlite")'
           Rscript -e 'pak::pkg_install("sportsdataverse/fastRhockey")'
 
       - name: Skapa testbilder
         run: |
           Rscript scripts/test_match_images.R
 
-      - name: Testa IPTV M3U
+      - name: Testa IPTV API
         env:
           IPTV_USERNAME: ${{ secrets.IPTV_USERNAME }}
           IPTV_PASSWORD: ${{ secrets.IPTV_PASSWORD }}
