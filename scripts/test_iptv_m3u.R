@@ -1,5 +1,5 @@
 
-# Testa hämtning av Strong 8K M3U-playlist
+# Testa Strong 8K via Xtream Codes API
 
 host <- "http://enough62794.wd.business-cloud-8.ru"
 
@@ -7,71 +7,59 @@ username <- Sys.getenv("IPTV_USERNAME")
 password <- Sys.getenv("IPTV_PASSWORD")
 
 if (username == "" || password == "") {
-  stop("IPTV_USERNAME eller IPTV_PASSWORD saknas i GitHub Secrets.")
+  stop("IPTV_USERNAME eller IPTV_PASSWORD saknas.")
 }
 
-# Bygg M3U-adressen utan att skriva ut den
-playlist_url <- paste0(
+api_url <- paste0(
   host,
-  "/get.php?username=", curl::curl_escape(username),
-  "&password=", curl::curl_escape(password),
-  "&type=m3u_plus&output=ts"
+  "/player_api.php?username=",
+  curl::curl_escape(username),
+  "&password=",
+  curl::curl_escape(password),
+  "&action=get_live_streams"
 )
 
-cat("Testar anslutning till IPTV-servern...\n")
+cat("Ansluter till Strong 8K API...\n")
 
-result <- tryCatch({
-
+response <- tryCatch({
   handle <- curl::new_handle(
     followlocation = TRUE,
     connecttimeout = 20,
-    timeout = 120,
-    useragent = "Mozilla/5.0"
+    timeout = 180,
+    useragent = "VLC/3.0.18 LibVLC/3.0.18"
   )
 
-  response <- curl::curl_fetch_memory(
-    playlist_url,
-    handle = handle
-  )
-
-  list(
-    status = response$status_code,
-    content = rawToChar(response$content)
-  )
+  curl::curl_fetch_memory(api_url, handle = handle)
 
 }, error = function(e) {
-  stop("Kunde inte hämta playlisten. Kontrollera servern och inloggningen.")
+  stop("Kunde inte ansluta till IPTV API.")
 })
 
-if (result$status != 200) {
-  stop(paste("Servern svarade med HTTP-status:", result$status))
+if (response$status_code != 200) {
+  stop(paste("API svarade med HTTP-status:", response$status_code))
 }
 
-playlist <- result$content
+data <- tryCatch({
+  jsonlite::fromJSON(
+    rawToChar(response$content),
+    simplifyVector = TRUE
+  )
+}, error = function(e) {
+  stop("API-svaret kunde inte läsas som JSON.")
+})
 
-if (!grepl("#EXTM3U", playlist, fixed = TRUE)) {
-  stop("Svaret verkar inte vara en giltig M3U-playlist.")
+if (!is.data.frame(data) || !"name" %in% names(data)) {
+  stop("API-svaret innehöll inte förväntade kanaluppgifter.")
 }
 
-# Läs ut kanalnamnen
-lines <- strsplit(playlist, "\n", fixed = TRUE)[[1]]
+channel_names <- unique(data$name)
+channel_names <- channel_names[!is.na(channel_names)]
 
-channel_lines <- grep("^#EXTINF", lines, value = TRUE)
-
-channel_names <- sub(
-  "^.*?,",
-  "",
-  channel_lines
-)
-
-channel_names <- trimws(channel_names)
-channel_names <- channel_names[nzchar(channel_names)]
-
-cat("\nM3U-hämtningen lyckades!\n")
+cat("\nAnslutningen lyckades!\n")
 cat("Antal kanaler:", length(channel_names), "\n\n")
 
 cat("Exempel på kanalnamn:\n")
 
-for (name in head(channel_names, 15)) {
+for (name in head(channel_names, 20)) {
   cat("-", name, "\n")
 }
