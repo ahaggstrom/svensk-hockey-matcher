@@ -452,12 +452,12 @@ if (!is.null(ha) && nrow(ha) > 0) {
     )
   )
 
-  ha_matches <- which(
-    ha_dates >= today &
-    ha_dates <= end_date &
-    !is.na(ha$is_completed) &
-    !ha$is_completed
-  )
+ha_matches <- which(
+  !is.na(ha_dates) &
+  ha_dates >= today &
+  ha_dates <= end_date &
+  (is.na(ha$is_completed) | !ha$is_completed)
+)
 
   if (length(ha_matches) > 0) {
 
